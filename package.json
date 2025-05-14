@@ -1,0 +1,15 @@
+{
+  "name": "ato-typescript-playwright-esm-pnpm",
+  "type": "module",
+  "version": "1.0.0",
+  "packageManager": "pnpm@9.15.9",
+  "scripts": {
+    "test": "playwright test"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.52.0",
+    "allure-playwright": "^3.2.2",
+    "allure-js-commons": "^3.2.2",
+    "@types/node": "^20.17.46"
+  }
+}

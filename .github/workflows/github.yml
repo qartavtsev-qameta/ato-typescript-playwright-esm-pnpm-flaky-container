@@ -1,0 +1,124 @@
+name: Run
+
+# Pipeline execution rules
+on:
+  # schedule:                      # Run the pipeline when triggered by a scheduled event
+  #   - cron: '0 0 * * *'          # Run the pipeline every day at midnight UTC
+  workflow_dispatch:               # Run the pipeline when triggered manually from the web UI
+    inputs:
+      ALLURE_JOB_RUN_ID:
+        description: "ALLURE_JOB_RUN_ID: service parameter - leave blank"
+        required: false
+      ALLURE_USERNAME:
+        description: "ALLURE_USERNAME: service parameter - leave blank"
+        required: false
+      BRANCH:
+        description: "Specify the Git branch name"
+        required: false
+        default: ""                                                     # Default Git branch name
+      # 
+      # BROWSER configuration is defined in playwright.config.ts
+      # 
+      # BROWSER:
+      #   description: "Specify the browser"
+      #   required: false
+      #   default: ""                                                   # Default browser
+      #   type: choice
+      #   options:                                                      # Available options
+      #     - "Chrome"
+      #     - "Firefox"
+      #     - "Safari"
+      # 
+      HOST:
+        description: "Specify the environment host"
+        required: false
+        default: ""                                                     # Default environment host
+        type: choice
+        options:                                                        # Available options
+          - "demo.testops.cloud"
+          - "production.testops.cloud"
+          - "qa.testops.cloud"
+          - "testing.testops.cloud"
+          - "staging.testops.cloud"
+      #  
+      # OS configuration is defined in playwright.config.ts
+      # 
+      # OS:
+      #   description: "Specify the operating system"
+      #   required: false
+      #   default: ""                                                   # Default operating system
+      #   type: choice
+      #   options:                                                      # Available options
+      #     - "Linux"
+      #     - "macOS"
+      #     - "Windows"
+      # 
+      VERSION:
+        description: "Specify the software version under test"
+        required: false
+        default: ""                                                     # Default software version under test
+
+# Global environment variables
+env:
+  ALLURE_ENDPOINT: "https://demo.testops.cloud/"                                                # Allure TestOps endpoint URL for submitting test results
+  ALLURE_JOB_RUN_ID: ${{ github.event.inputs.ALLURE_JOB_RUN_ID }}                               # Allure TestOps job run ID for test results association
+  ALLURE_PROJECT_ID: "3111"                                                                     # Allure TestOps project ID for submitting test results
+  ALLURE_RESULTS: "./allure-results"                                                            # Directory where test result files will be stored
+  ALLURE_TOKEN: ${{ secrets.ALLURE_TOKEN }}                                                     # Authentication token for Allure TestOps (secured environment variable)
+  ALLURE_LAUNCH_NAME_WITHOUT_TIME: "TypeScript/Playwright - #${{ github.run_number }}"          # Base Allure TestOps launch name (without timestamp)
+  BRANCH: ${{ github.event.inputs.BRANCH }}                                                     # Git branch name specified for test execution
+  # BROWSER: ${{ github.event.inputs.BROWSER }}                                                 # Browser specified for test execution
+  HOST: ${{ github.event.inputs.HOST }}                                                         # Environment host specified for test execution
+  # OS: ${{ github.event.inputs.OS }}                                                           # Operating system specified for test execution
+  VERSION: ${{ github.event.inputs.VERSION }}                                                   # Software version under test specified
+
+# Jobs used in the pipeline
+jobs:
+  # Job for timestamp parsing
+  timestamp:
+    name: timestamp_parsing
+    runs-on: ubuntu-latest
+    outputs:
+      parsed_timestamp: ${{ steps.set-output.outputs.PARSED_TIMESTAMP }}
+    steps:
+      - name: Set Timestamp
+        id: set-output
+        run: |
+          PARSED_TIMESTAMP=$(date -u --date="+3 hours" +"%Y.%m.%d - %H:%M:%S")
+          echo "PARSED_TIMESTAMP=$PARSED_TIMESTAMP" >> $GITHUB_OUTPUT
+        # Adjust the commit timestamp (+3 hours) and format it
+        # Export the parsed timestamp to GitHub Actions output for reuse
+
+  # Job for test execution
+  tests:
+    name: tests_execution
+    needs: timestamp
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        # Checkout the code from the repository
+
+      - name: Install and configure pnpm and Playwright
+        run: |
+          corepack enable
+          pnpm install
+          npx playwright install --with-deps
+        # Enable corepack to manage package managers (e.g., pnpm)
+        # Install project dependencies using pnpm
+        # Install Playwright and required browser dependencies
+
+      - name: Install and configure allurectl using GitHub Actions
+        uses: allure-framework/setup-allurectl@v1
+        with:
+          allure-endpoint: ${{ env.ALLURE_ENDPOINT }}
+          allure-token: ${{ secrets.ALLURE_TOKEN }}
+          allure-project-id: ${{ env.ALLURE_PROJECT_ID }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Run tests
+        env:
+          ALLURE_LAUNCH_NAME: "${{ env.ALLURE_LAUNCH_NAME_WITHOUT_TIME }} - ${{ needs.timestamp.outputs.parsed_timestamp }}"
+        # Set the full Allure TestOps launch name (with timestamp)
+        run: |
+          allurectl watch pnpm test
+        # Execute tests and upload test results to Allure TestOps

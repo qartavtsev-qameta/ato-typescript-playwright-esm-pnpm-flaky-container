@@ -1,0 +1,150 @@
+name: ato-with-container
+
+#permissions:
+#  contents: write
+#  actions: write
+#  id-token: write
+
+# Pipeline execution rules
+on:
+  # schedule:                        # Run the pipeline when triggered by a scheduled event
+  #   - cron: '0 0 */3 * *'          # Run the pipeline every 3rd day at midnight UTC
+  workflow_dispatch:                 # Run the pipeline when triggered manually from the web UI
+    inputs:
+      ALLURE_JOB_RUN_ID:
+        description: "ALLURE_JOB_RUN_ID - service parameter, leave blank"
+        required: false
+      ALLURE_USERNAME:
+        description: "ALLURE_USERNAME - service parameter, leave blank"
+        required: false
+      # BROWSER configuration is defined in playwright.config.ts
+      #
+      # BROWSER: 
+      #  description: "Specify the browser"
+      #  required: false
+      #  default: ""                                                    # Default browser
+      #  type: choice
+      #  options:                                                       # Available options
+      #    - "Chrome"
+      #    - "Firefox"
+      #    - "Safari"
+      #
+      HOST: 
+        description: "Specify the environment host"
+        required: false
+        default: ""                                                     # Default environment host
+        type: choice
+        options:                                                        # Available options
+          - "demo.testops.cloud"
+          - "production.testops.cloud"
+          - "qa.testops.cloud"
+          - "testing.testops.cloud"
+          - "staging.testops.cloud"
+      # OS configuration is defined in playwright.config.ts
+      #
+      # OS: 
+      #  description: "Specify the operating system"
+      #  required: false
+      #  default: ""                                                    # Default operating system
+      #  type: choice
+      #  options:                                                       # Available options
+      #    - "Linux"
+      #    - "macOS"
+      #    - "Windows"
+      #
+      VERSION:
+        description: "Specify the software version under test"
+        required: false
+        default: ""                                                     # Default software version under test
+
+# Global environment variables
+env:
+  ALLURE_ENDPOINT: "https://demo.testops.cloud/"                                                # Allure TestOps endpoint URL for submitting test results
+  ALLURE_JOB_RUN_ID: ${{ github.event.inputs.ALLURE_JOB_RUN_ID }}
+  ALLURE_PROJECT_ID: "3111"                                                                     # Allure TestOps project ID for submitting test results
+  ALLURE_RESULTS: "./allure-results"                                                            # Directory where test result files will be stored
+  ALLURE_TOKEN: ${{ secrets.ALLURE_TOKEN }}                                                     # Authentication token for Allure TestOps (secured environment variable)
+  ALLURE_LAUNCH_NAME_WITHOUT_TIME: "TypeScript/Playwright - #${{ github.run_number }}"          # Base Allure TestOps launch name (without timestamp)
+  BRANCH: ${{ github.ref_name }}                                                                # Current Git branch name
+  # BROWSER: ${{ inputs.BROWSER }}                                                                # Browser specified for test execution
+  HOST: ${{ inputs.HOST }}                                                                      # Environment host specified for test execution
+  # OS: ${{ inputs.OS }}                                                                          # Operating system specified for test execution
+  VERSION: ${{ inputs.VERSION }}                                                                # Software version under test specified
+  #HOME: /root                                                                                   # Home directory path required for Firefox to run as root
+
+# Jobs used in the pipeline
+jobs:
+  # Job for timestamp parsing
+  timestamp:
+    name: timestamp_parsing
+    runs-on: ubuntu-latest
+    outputs:
+      parsed_timestamp: ${{ steps.set-output.outputs.PARSED_TIMESTAMP }}
+    steps:
+      - name: Set Timestamp
+        id: set-output
+        run: |
+          PARSED_TIMESTAMP=$(date -d "${{ github.event.head_commit.timestamp }} +3 hours" +"%Y.%m.%d - %H:%M:%S")
+          echo "PARSED_TIMESTAMP=$PARSED_TIMESTAMP" >> $GITHUB_OUTPUT
+        # Adjust the commit timestamp (+3 hours) and format it
+        # Export the parsed timestamp to GitHub Actions output for reuse
+  
+  # Job for test execution
+  tests:
+    name: tests_execution
+    needs: timestamp
+    runs-on: ubuntu-latest
+    #container:
+    #  image: mcr.microsoft.com/playwright:v1.42.1-jammy          # Use the official Playwright Docker image
+    steps:
+      - uses: actions/checkout@v3                                # Checkout the code from the repository
+      
+      - name: ⚙️ Enable and configure the package manager with pnpm and Playwright browser dependencies
+        run: |
+          corepack enable
+          corepack prepare pnpm@9.15.9 --activate
+          pnpm --version
+          pnpm install
+          pnpm --version
+          npx playwright install
+        # Enable corepack to manage package managers (e.g., pnpm)
+        # Install and activate a specific pnpm version
+        # Install dependencies
+        # Install Playwright browser dependencies
+
+      - name: ⬇️ Install and configure allurectl using GH Action
+        uses: allure-framework/setup-allurectl@v1
+        with:
+          allure-endpoint: ${{ env.ALLURE_ENDPOINT }}
+          allure-token: ${{ secrets.ALLURE_TOKEN }}
+          allure-project-id: ${{ env.ALLURE_PROJECT_ID }}
+          github-token: ${{ secrets.GITHUB_TOKEN }} 
+
+    #  - name: 🧪 Check if testplan.json exists
+    #    run: |
+    #      if [ -f "./testplan.json" ]; then
+    #        echo "✅ testplan.json exists"
+    #        cat ./testplan.json
+    #      else
+    #        echo "❌ testplan.json does not exist"
+    #        exit 1
+    #      fi
+
+    #  - name: 🛠 Add allurectl to PATH
+    #    run: echo "/root/.allurectl/bin" >> $GITHUB_PATH
+
+    #  - name: ⬇️ Download allurectl
+    #    run: |
+    #      wget https://github.com/allure-framework/allurectl/releases/latest/download/allurectl_linux_amd64 -O ./allurectl
+    #      chmod +x ./allurectl
+    #    # Download allurectl
+    #   # Make allurectl executable
+
+      - name: ▶️ Run tests
+        env:
+          ALLURE_LAUNCH_NAME: "${{ env.ALLURE_LAUNCH_NAME_WITHOUT_TIME }} - ${{ needs.timestamp.outputs.parsed_timestamp }}"
+        # Set the full Allure TestOps launch name (with timestamp)
+        run: |
+          allurectl watch --help
+          allurectl watch pnpm test
+        # Execute tests and upload test results to Allure TestOps
